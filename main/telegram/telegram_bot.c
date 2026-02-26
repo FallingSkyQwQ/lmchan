@@ -1,11 +1,12 @@
 #include "telegram_bot.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 #include "bus/message_bus.h"
 #include "proxy/http_proxy.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_http_client.h"
@@ -15,7 +16,8 @@
 
 static const char *TAG = "telegram";
 
-static char s_bot_token[128] = MIMI_SECRET_TG_TOKEN;
+static char s_bot_token[128] = LMCHAN_SECRET_TG_TOKEN;
+static char s_allowlist[256] = LMCHAN_SECRET_TG_ALLOWLIST;
 static int64_t s_update_offset = 0;
 static int64_t s_last_saved_offset = -1;
 static int64_t s_last_offset_save_us = 0;
@@ -27,6 +29,72 @@ static int64_t s_last_offset_save_us = 0;
 
 static uint64_t s_seen_msg_keys[TG_DEDUP_CACHE_SIZE] = {0};
 static size_t s_seen_msg_idx = 0;
+
+static bool is_start_command(const char *text)
+{
+    return text && (strcmp(text, "/start") == 0 || strncmp(text, "/start ", 7) == 0);
+}
+
+static bool allowlist_is_empty(void)
+{
+    for (const char *p = s_allowlist; p && *p; p++) {
+        if (!isspace((unsigned char)*p) && *p != ',') {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool user_allowed(const char *user_id)
+{
+    if (!user_id || !user_id[0] || allowlist_is_empty()) {
+        return true;
+    }
+
+    const char *p = s_allowlist;
+    while (*p) {
+        while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && *p != ',') p++;
+        const char *end = p;
+        while (end > start && isspace((unsigned char)*(end - 1))) end--;
+
+        size_t n = (size_t)(end - start);
+        if (n > 0 && strlen(user_id) == n && strncmp(start, user_id, n) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static char *escape_html_text(const char *src)
+{
+    if (!src) return NULL;
+    size_t len = strlen(src);
+    size_t cap = len * 6 + 1;
+    char *out = calloc(1, cap);
+    if (!out) return NULL;
+
+    size_t off = 0;
+    for (size_t i = 0; i < len && off + 8 < cap; i++) {
+        char c = src[i];
+        if (c == '&') {
+            memcpy(out + off, "&amp;", 5);
+            off += 5;
+        } else if (c == '<') {
+            memcpy(out + off, "&lt;", 4);
+            off += 4;
+        } else if (c == '>') {
+            memcpy(out + off, "&gt;", 4);
+            off += 4;
+        } else {
+            out[off++] = c;
+        }
+    }
+    out[off] = '\0';
+    return out;
+}
 
 /* HTTP response accumulator */
 typedef struct {
@@ -93,7 +161,7 @@ static void save_update_offset_if_needed(bool force)
     }
 
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs) != ESP_OK) {
+    if (nvs_open(LMCHAN_NVS_TG, NVS_READWRITE, &nvs) != ESP_OK) {
         return;
     }
 
@@ -132,7 +200,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 static char *tg_api_call_via_proxy(const char *path, const char *post_data)
 {
     proxy_conn_t *conn = proxy_conn_open("api.telegram.org", 443,
-                                          (MIMI_TG_POLL_TIMEOUT_S + 5) * 1000);
+                                          (LMCHAN_TG_POLL_TIMEOUT_S + 5) * 1000);
     if (!conn) return NULL;
 
     /* Build HTTP request */
@@ -168,7 +236,7 @@ static char *tg_api_call_via_proxy(const char *path, const char *post_data)
     char *buf = calloc(1, cap);
     if (!buf) { proxy_conn_close(conn); return NULL; }
 
-    int timeout = (MIMI_TG_POLL_TIMEOUT_S + 5) * 1000;
+    int timeout = (LMCHAN_TG_POLL_TIMEOUT_S + 5) * 1000;
     while (1) {
         if (len + 1024 >= cap) {
             cap *= 2;
@@ -212,7 +280,7 @@ static char *tg_api_call_direct(const char *method, const char *post_data)
         .url = url,
         .event_handler = http_event_handler,
         .user_data = &resp,
-        .timeout_ms = (MIMI_TG_POLL_TIMEOUT_S + 5) * 1000,
+        .timeout_ms = (LMCHAN_TG_POLL_TIMEOUT_S + 5) * 1000,
         .buffer_size = 2048,
         .buffer_size_tx = 2048,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -318,14 +386,24 @@ static void process_updates(const char *json_str)
         cJSON *message = cJSON_GetObjectItem(update, "message");
         if (!message) continue;
 
-        cJSON *text = cJSON_GetObjectItem(message, "text");
-        if (!text || !cJSON_IsString(text)) continue;
-
         cJSON *chat = cJSON_GetObjectItem(message, "chat");
         if (!chat) continue;
 
         cJSON *chat_id = cJSON_GetObjectItem(chat, "id");
         if (!chat_id) continue;
+        cJSON *text = cJSON_GetObjectItem(message, "text");
+        if (!text || !cJSON_IsString(text)) continue;
+
+        char from_id_str[32] = {0};
+        cJSON *from = cJSON_GetObjectItem(message, "from");
+        if (from) {
+            cJSON *from_id = cJSON_GetObjectItem(from, "id");
+            if (from_id && cJSON_IsNumber(from_id)) {
+                snprintf(from_id_str, sizeof(from_id_str), "%.0f", from_id->valuedouble);
+            } else if (from_id && cJSON_IsString(from_id) && from_id->valuestring) {
+                strncpy(from_id_str, from_id->valuestring, sizeof(from_id_str) - 1);
+            }
+        }
 
         int msg_id_val = -1;
         cJSON *message_id = cJSON_GetObjectItem(message, "message_id");
@@ -356,9 +434,19 @@ static void process_updates(const char *json_str)
         ESP_LOGI(TAG, "Message update_id=%" PRId64 " message_id=%d from chat %s: %.40s...",
                  uid, msg_id_val, chat_id_str, text->valuestring);
 
+        if (!user_allowed(from_id_str)) {
+            ESP_LOGW(TAG, "Blocked message from non-allowlisted user_id=%s", from_id_str);
+            continue;
+        }
+
+        if (is_start_command(text->valuestring)) {
+            telegram_send_message(chat_id_str, "你好，我是 lmchan（凉面酱）~ 已上线，直接和我聊天就可以。");
+            continue;
+        }
+
         /* Push to inbound bus */
-        mimi_msg_t msg = {0};
-        strncpy(msg.channel, MIMI_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
+        lmchan_msg_t msg = {0};
+        strncpy(msg.channel, LMCHAN_CHAN_TELEGRAM, sizeof(msg.channel) - 1);
         strncpy(msg.chat_id, chat_id_str, sizeof(msg.chat_id) - 1);
         msg.content = strdup(text->valuestring);
         if (msg.content) {
@@ -386,7 +474,7 @@ static void telegram_poll_task(void *arg)
         char params[128];
         snprintf(params, sizeof(params),
                  "getUpdates?offset=%" PRId64 "&timeout=%d",
-                 s_update_offset, MIMI_TG_POLL_TIMEOUT_S);
+                 s_update_offset, LMCHAN_TG_POLL_TIMEOUT_S);
 
         char *resp = tg_api_call(params, NULL);
         if (resp) {
@@ -405,11 +493,16 @@ esp_err_t telegram_bot_init(void)
 {
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_TG, NVS_READONLY, &nvs) == ESP_OK) {
+    if (nvs_open(LMCHAN_NVS_TG, NVS_READONLY, &nvs) == ESP_OK) {
         char tmp[128] = {0};
         size_t len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_TG_TOKEN, tmp, &len) == ESP_OK && tmp[0]) {
+        if (nvs_get_str(nvs, LMCHAN_NVS_KEY_TG_TOKEN, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_bot_token, tmp, sizeof(s_bot_token) - 1);
+        }
+        char allow_tmp[sizeof(s_allowlist)] = {0};
+        len = sizeof(allow_tmp);
+        if (nvs_get_str(nvs, LMCHAN_NVS_KEY_TG_ALLOWLIST, allow_tmp, &len) == ESP_OK) {
+            strncpy(s_allowlist, allow_tmp, sizeof(s_allowlist) - 1);
         }
 
         int64_t offset = 0;
@@ -421,12 +514,17 @@ esp_err_t telegram_bot_init(void)
         nvs_close(nvs);
     }
 
-    /* s_bot_token is already initialized from MIMI_SECRET_TG_TOKEN as fallback */
+    /* s_bot_token is already initialized from LMCHAN_SECRET_TG_TOKEN as fallback */
 
     if (s_bot_token[0]) {
         ESP_LOGI(TAG, "Telegram bot token loaded (len=%d)", (int)strlen(s_bot_token));
     } else {
         ESP_LOGW(TAG, "No Telegram bot token. Use CLI: set_tg_token <TOKEN>");
+    }
+    if (allowlist_is_empty()) {
+        ESP_LOGI(TAG, "Telegram allowlist: empty (allow all users)");
+    } else {
+        ESP_LOGI(TAG, "Telegram allowlist enabled: %s", s_allowlist);
     }
     return ESP_OK;
 }
@@ -435,8 +533,8 @@ esp_err_t telegram_bot_start(void)
 {
     BaseType_t ret = xTaskCreatePinnedToCore(
         telegram_poll_task, "tg_poll",
-        MIMI_TG_POLL_STACK, NULL,
-        MIMI_TG_POLL_PRIO, NULL, MIMI_TG_POLL_CORE);
+        LMCHAN_TG_POLL_STACK, NULL,
+        LMCHAN_TG_POLL_PRIO, NULL, LMCHAN_TG_POLL_CORE);
 
     return (ret == pdPASS) ? ESP_OK : ESP_FAIL;
 }
@@ -455,8 +553,8 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
 
     while (offset < text_len) {
         size_t chunk = text_len - offset;
-        if (chunk > MIMI_TG_MAX_MSG_LEN) {
-            chunk = MIMI_TG_MAX_MSG_LEN;
+        if (chunk > LMCHAN_TG_MAX_MSG_LEN) {
+            chunk = LMCHAN_TG_MAX_MSG_LEN;
         }
 
         /* Build JSON body */
@@ -472,11 +570,13 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
         memcpy(segment, text + offset, chunk);
         segment[chunk] = '\0';
 
-        cJSON_AddStringToObject(body, "text", segment);
-        cJSON_AddStringToObject(body, "parse_mode", "Markdown");
+        char *html_segment = escape_html_text(segment);
+        cJSON_AddStringToObject(body, "text", html_segment ? html_segment : segment);
+        cJSON_AddStringToObject(body, "parse_mode", "HTML");
 
         char *json_str = cJSON_PrintUnformatted(body);
         cJSON_Delete(body);
+        free(html_segment);
         free(segment);
 
         if (!json_str) {
@@ -496,7 +596,7 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
             sent_ok = tg_response_is_ok(resp, &desc);
             if (!sent_ok) {
                 markdown_failed = true;
-                ESP_LOGI(TAG, "Markdown rejected by Telegram for %s: %s",
+                ESP_LOGI(TAG, "Formatted message rejected by Telegram for %s: %s",
                          chat_id, desc ? desc : "unknown");
             }
         }
@@ -552,12 +652,41 @@ esp_err_t telegram_send_message(const char *chat_id, const char *text)
 esp_err_t telegram_set_token(const char *token)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_TG, NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_TG_TOKEN, token));
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_TG, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, LMCHAN_NVS_KEY_TG_TOKEN, token));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
 
     strncpy(s_bot_token, token, sizeof(s_bot_token) - 1);
     ESP_LOGI(TAG, "Telegram bot token saved");
+    return ESP_OK;
+}
+
+esp_err_t telegram_set_allowlist(const char *allowlist_csv)
+{
+    if (!allowlist_csv) {
+        allowlist_csv = "";
+    }
+
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_TG, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, LMCHAN_NVS_KEY_TG_ALLOWLIST, allowlist_csv));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    strncpy(s_allowlist, allowlist_csv, sizeof(s_allowlist) - 1);
+    s_allowlist[sizeof(s_allowlist) - 1] = '\0';
+    ESP_LOGI(TAG, "Telegram allowlist updated: %s",
+             allowlist_is_empty() ? "(empty, allow all)" : s_allowlist);
+    return ESP_OK;
+}
+
+esp_err_t telegram_get_allowlist(char *buf, size_t size)
+{
+    if (!buf || size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strncpy(buf, s_allowlist, size - 1);
+    buf[size - 1] = '\0';
     return ESP_OK;
 }

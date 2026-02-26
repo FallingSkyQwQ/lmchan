@@ -36,10 +36,10 @@ fi
 
 # 2. Project files
 echo "Project:"
-if [ -f main/mimi_config.h ]; then
-    pass "main/mimi_config.h exists"
+if [ -f main/lmchan_config.h ]; then
+    pass "main/lmchan_config.h exists"
 else
-    fail "main/mimi_config.h missing — wrong directory?"
+    fail "main/lmchan_config.h missing — wrong directory?"
 fi
 
 if [ -f partitions.csv ]; then
@@ -50,35 +50,35 @@ fi
 
 # 3. Secrets
 echo "Secrets:"
-if [ -f main/mimi_secrets.h ]; then
-    pass "main/mimi_secrets.h exists"
+if [ -f main/lmchan_secrets.h ]; then
+    pass "main/lmchan_secrets.h exists"
 
     # Check individual fields
-    if grep -q 'MIMI_SECRET_WIFI_SSID.*""' main/mimi_secrets.h; then
+    if grep -q 'LMCHAN_SECRET_WIFI_SSID.*""' main/lmchan_secrets.h; then
         fail "WiFi SSID is empty"
     else
         pass "WiFi SSID configured"
     fi
 
-    if grep -q 'MIMI_SECRET_TG_TOKEN.*""' main/mimi_secrets.h; then
+    if grep -q 'LMCHAN_SECRET_TG_TOKEN.*""' main/lmchan_secrets.h; then
         fail "Telegram token is empty"
     else
         pass "Telegram token configured"
     fi
 
-    if grep -q 'MIMI_SECRET_API_KEY.*""' main/mimi_secrets.h; then
+    if grep -q 'LMCHAN_SECRET_API_KEY.*""' main/lmchan_secrets.h; then
         fail "Anthropic API key is empty"
     else
         pass "Anthropic API key configured"
     fi
 
-    if grep -q 'MIMI_SECRET_SEARCH_KEY.*""' main/mimi_secrets.h; then
+    if grep -q 'LMCHAN_SECRET_SEARCH_KEY.*""' main/lmchan_secrets.h; then
         warn "Brave Search key not set (web_search will be unavailable)"
     else
         pass "Brave Search key configured"
     fi
 else
-    fail "main/mimi_secrets.h missing — run: cp main/mimi_secrets.h.example main/mimi_secrets.h"
+    fail "main/lmchan_secrets.h missing — run: cp main/lmchan_secrets.h.example main/lmchan_secrets.h"
 fi
 
 # 4. Serial port

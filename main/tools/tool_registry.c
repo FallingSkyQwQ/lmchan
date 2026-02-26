@@ -1,5 +1,5 @@
 #include "tool_registry.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 #include "tools/tool_web_search.h"
 #include "tools/tool_get_time.h"
 #include "tools/tool_files.h"
@@ -13,11 +13,11 @@ static const char *TAG = "tools";
 
 #define MAX_TOOLS 12
 
-static mimi_tool_t s_tools[MAX_TOOLS];
+static lmchan_tool_t s_tools[MAX_TOOLS];
 static int s_tool_count = 0;
 static char *s_tools_json = NULL;  /* cached JSON array string */
 
-static void register_tool(const mimi_tool_t *tool)
+static void register_tool(const lmchan_tool_t *tool)
 {
     if (s_tool_count >= MAX_TOOLS) {
         ESP_LOGE(TAG, "Tool registry full");
@@ -58,7 +58,7 @@ esp_err_t tool_registry_init(void)
     /* Register web_search */
     tool_web_search_init();
 
-    mimi_tool_t ws = {
+    lmchan_tool_t ws = {
         .name = "web_search",
         .description = "Search the web for current information. Use this when you need up-to-date facts, news, weather, or anything beyond your training data.",
         .input_schema_json =
@@ -70,7 +70,7 @@ esp_err_t tool_registry_init(void)
     register_tool(&ws);
 
     /* Register get_current_time */
-    mimi_tool_t gt = {
+    lmchan_tool_t gt = {
         .name = "get_current_time",
         .description = "Get the current date and time. Also sets the system clock. Call this when you need to know what time or date it is.",
         .input_schema_json =
@@ -82,24 +82,24 @@ esp_err_t tool_registry_init(void)
     register_tool(&gt);
 
     /* Register read_file */
-    mimi_tool_t rf = {
+    lmchan_tool_t rf = {
         .name = "read_file",
-        .description = "Read a file from SPIFFS storage. Path must start with " MIMI_SPIFFS_BASE "/.",
+        .description = "Read a file from SPIFFS storage. Path must start with " LMCHAN_SPIFFS_BASE "/.",
         .input_schema_json =
             "{\"type\":\"object\","
-            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " MIMI_SPIFFS_BASE "/\"}},"
+            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " LMCHAN_SPIFFS_BASE "/\"}},"
             "\"required\":[\"path\"]}",
         .execute = tool_read_file_execute,
     };
     register_tool(&rf);
 
     /* Register write_file */
-    mimi_tool_t wf = {
+    lmchan_tool_t wf = {
         .name = "write_file",
-        .description = "Write or overwrite a file on SPIFFS storage. Path must start with " MIMI_SPIFFS_BASE "/.",
+        .description = "Write or overwrite a file on SPIFFS storage. Path must start with " LMCHAN_SPIFFS_BASE "/.",
         .input_schema_json =
             "{\"type\":\"object\","
-            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " MIMI_SPIFFS_BASE "/\"},"
+            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " LMCHAN_SPIFFS_BASE "/\"},"
             "\"content\":{\"type\":\"string\",\"description\":\"File content to write\"}},"
             "\"required\":[\"path\",\"content\"]}",
         .execute = tool_write_file_execute,
@@ -107,12 +107,12 @@ esp_err_t tool_registry_init(void)
     register_tool(&wf);
 
     /* Register edit_file */
-    mimi_tool_t ef = {
+    lmchan_tool_t ef = {
         .name = "edit_file",
         .description = "Find and replace text in a file on SPIFFS. Replaces first occurrence of old_string with new_string.",
         .input_schema_json =
             "{\"type\":\"object\","
-            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " MIMI_SPIFFS_BASE "/\"},"
+            "\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path starting with " LMCHAN_SPIFFS_BASE "/\"},"
             "\"old_string\":{\"type\":\"string\",\"description\":\"Text to find\"},"
             "\"new_string\":{\"type\":\"string\",\"description\":\"Replacement text\"}},"
             "\"required\":[\"path\",\"old_string\",\"new_string\"]}",
@@ -121,19 +121,19 @@ esp_err_t tool_registry_init(void)
     register_tool(&ef);
 
     /* Register list_dir */
-    mimi_tool_t ld = {
+    lmchan_tool_t ld = {
         .name = "list_dir",
         .description = "List files on SPIFFS storage, optionally filtered by path prefix.",
         .input_schema_json =
             "{\"type\":\"object\","
-            "\"properties\":{\"prefix\":{\"type\":\"string\",\"description\":\"Optional path prefix filter, e.g. " MIMI_SPIFFS_BASE "/memory/\"}},"
+            "\"properties\":{\"prefix\":{\"type\":\"string\",\"description\":\"Optional path prefix filter, e.g. " LMCHAN_SPIFFS_BASE "/memory/\"}},"
             "\"required\":[]}",
         .execute = tool_list_dir_execute,
     };
     register_tool(&ld);
 
     /* Register cron_add */
-    mimi_tool_t ca = {
+    lmchan_tool_t ca = {
         .name = "cron_add",
         .description = "Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.",
         .input_schema_json =
@@ -144,8 +144,8 @@ esp_err_t tool_registry_init(void)
             "\"interval_s\":{\"type\":\"integer\",\"description\":\"Interval in seconds (required for 'every')\"},"
             "\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (required for 'at')\"},"
             "\"message\":{\"type\":\"string\",\"description\":\"Message to inject when the job fires, triggering an agent turn\"},"
-            "\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel (e.g. 'telegram'). If omitted, current turn channel is used when available\"},"
-            "\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id. Required when channel='telegram'. If omitted during a Telegram turn, current chat_id is used\"}"
+            "\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel (e.g. 'feishu'). If omitted, current turn channel is used when available\"},"
+            "\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id. Required when channel='feishu'. If omitted during a Feishu turn, current chat_id is used\"}"
             "},"
             "\"required\":[\"name\",\"schedule_type\",\"message\"]}",
         .execute = tool_cron_add_execute,
@@ -153,7 +153,7 @@ esp_err_t tool_registry_init(void)
     register_tool(&ca);
 
     /* Register cron_list */
-    mimi_tool_t cl = {
+    lmchan_tool_t cl = {
         .name = "cron_list",
         .description = "List all scheduled cron jobs with their status, schedule, and IDs.",
         .input_schema_json =
@@ -165,7 +165,7 @@ esp_err_t tool_registry_init(void)
     register_tool(&cl);
 
     /* Register cron_remove */
-    mimi_tool_t cr = {
+    lmchan_tool_t cr = {
         .name = "cron_remove",
         .description = "Remove a scheduled cron job by its ID.",
         .input_schema_json =

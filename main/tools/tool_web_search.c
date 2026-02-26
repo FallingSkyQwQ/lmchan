@@ -1,5 +1,5 @@
 #include "tool_web_search.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 #include "proxy/http_proxy.h"
 
 #include <string.h>
@@ -45,16 +45,16 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 esp_err_t tool_web_search_init(void)
 {
     /* Start with build-time default */
-    if (MIMI_SECRET_SEARCH_KEY[0] != '\0') {
-        strncpy(s_search_key, MIMI_SECRET_SEARCH_KEY, sizeof(s_search_key) - 1);
+    if (LMCHAN_SECRET_SEARCH_KEY[0] != '\0') {
+        strncpy(s_search_key, LMCHAN_SECRET_SEARCH_KEY, sizeof(s_search_key) - 1);
     }
 
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_SEARCH, NVS_READONLY, &nvs) == ESP_OK) {
+    if (nvs_open(LMCHAN_NVS_SEARCH, NVS_READONLY, &nvs) == ESP_OK) {
         char tmp[128] = {0};
         size_t len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
+        if (nvs_get_str(nvs, LMCHAN_NVS_KEY_API_KEY, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_search_key, tmp, sizeof(s_search_key) - 1);
         }
         nvs_close(nvs);
@@ -227,7 +227,7 @@ static esp_err_t search_via_proxy(const char *path, search_buf_t *sb)
 esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t output_size)
 {
     if (s_search_key[0] == '\0') {
-        snprintf(output, output_size, "Error: No search API key configured. Set MIMI_SECRET_SEARCH_KEY in mimi_secrets.h");
+        snprintf(output, output_size, "Error: No search API key configured. Set LMCHAN_SECRET_SEARCH_KEY in lmchan_secrets.h");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -300,8 +300,8 @@ esp_err_t tool_web_search_execute(const char *input_json, char *output, size_t o
 esp_err_t tool_web_search_set_key(const char *api_key)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_SEARCH, NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_API_KEY, api_key));
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_SEARCH, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, LMCHAN_NVS_KEY_API_KEY, api_key));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
 

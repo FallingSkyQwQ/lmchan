@@ -5,17 +5,18 @@
 #include "freertos/queue.h"
 
 /* Channel identifiers */
-#define MIMI_CHAN_TELEGRAM   "telegram"
-#define MIMI_CHAN_WEBSOCKET  "websocket"
-#define MIMI_CHAN_CLI        "cli"
-#define MIMI_CHAN_SYSTEM     "system"
+#define LMCHAN_CHAN_TELEGRAM   "telegram"
+#define LMCHAN_CHAN_WEBSOCKET  "websocket"
+#define LMCHAN_CHAN_FEISHU     "feishu"
+#define LMCHAN_CHAN_CLI        "cli"
+#define LMCHAN_CHAN_SYSTEM     "system"
 
 /* Message types on the bus */
 typedef struct {
     char channel[16];       /* "telegram", "websocket", "cli" */
-    char chat_id[32];       /* Telegram chat_id or WS client id */
+    char chat_id[96];       /* Channel-specific chat target ID */
     char *content;          /* Heap-allocated message text (caller must free) */
-} mimi_msg_t;
+} lmchan_msg_t;
 
 /**
  * Initialize the message bus (inbound + outbound FreeRTOS queues).
@@ -26,22 +27,22 @@ esp_err_t message_bus_init(void);
  * Push a message to the inbound queue (towards Agent Loop).
  * The bus takes ownership of msg->content.
  */
-esp_err_t message_bus_push_inbound(const mimi_msg_t *msg);
+esp_err_t message_bus_push_inbound(const lmchan_msg_t *msg);
 
 /**
  * Pop a message from the inbound queue (blocking).
  * Caller must free msg->content when done.
  */
-esp_err_t message_bus_pop_inbound(mimi_msg_t *msg, uint32_t timeout_ms);
+esp_err_t message_bus_pop_inbound(lmchan_msg_t *msg, uint32_t timeout_ms);
 
 /**
  * Push a message to the outbound queue (towards channels).
  * The bus takes ownership of msg->content.
  */
-esp_err_t message_bus_push_outbound(const mimi_msg_t *msg);
+esp_err_t message_bus_push_outbound(const lmchan_msg_t *msg);
 
 /**
  * Pop a message from the outbound queue (blocking).
  * Caller must free msg->content when done.
  */
-esp_err_t message_bus_pop_outbound(mimi_msg_t *msg, uint32_t timeout_ms);
+esp_err_t message_bus_pop_outbound(lmchan_msg_t *msg, uint32_t timeout_ms);
