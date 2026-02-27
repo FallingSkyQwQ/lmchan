@@ -151,6 +151,14 @@ restart
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/TODO.md](docs/TODO.md)
 
+## 贡献者
+
+感谢所有为 MimiClaw 做出贡献的开发者。
+
+<a href="https://github.com/memovai/mimiclaw/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=memovai/mimiclaw" alt="MimiClaw contributors" />
+</a>
+
 ## 许可证
 
 MIT
