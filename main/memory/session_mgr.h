@@ -17,6 +17,13 @@ esp_err_t session_mgr_init(void);
 esp_err_t session_append(const char *chat_id, const char *role, const char *content);
 
 /**
+ * Append a message and update metadata sidecar with source.
+ * @param source  Optional source tag (e.g. "feishu/text")
+ */
+esp_err_t session_append_with_source(const char *chat_id, const char *role,
+                                     const char *content, const char *source);
+
+/**
  * Load session history as a JSON array string suitable for LLM messages.
  * Returns the last max_msgs messages as:
  * [{"role":"user","content":"..."},{"role":"assistant","content":"..."},...]

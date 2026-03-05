@@ -4,7 +4,7 @@
 #
 # This script handles the full build-flash cycle:
 # 1. Checks prerequisites
-# 2. Ensures mimi_secrets.h exists
+# 2. Ensures lmchan_secrets.h exists
 # 3. Builds the firmware
 # 4. Auto-detects or uses specified serial port
 # 5. Flashes and opens monitor
@@ -36,16 +36,16 @@ IDF_VER=$(idf.py --version 2>&1 | head -1)
 info "ESP-IDF: $IDF_VER"
 
 # Check secrets
-if [ ! -f main/mimi_secrets.h ]; then
-    warn "main/mimi_secrets.h not found — creating from example"
-    cp main/mimi_secrets.h.example main/mimi_secrets.h
-    warn "Edit main/mimi_secrets.h with your credentials, then re-run this script"
+if [ ! -f main/lmchan_secrets.h ]; then
+    warn "main/lmchan_secrets.h not found — creating from example"
+    cp main/lmchan_secrets.h.example main/lmchan_secrets.h
+    warn "Edit main/lmchan_secrets.h with your credentials, then re-run this script"
     exit 1
 fi
 
 # Check if secrets are configured (WiFi SSID not empty)
-if grep -q 'MIMI_SECRET_WIFI_SSID.*""' main/mimi_secrets.h; then
-    error "WiFi SSID is empty in main/mimi_secrets.h — edit it first"
+if grep -q 'LMCHAN_SECRET_WIFI_SSID.*""' main/lmchan_secrets.h; then
+    error "WiFi SSID is empty in main/lmchan_secrets.h — edit it first"
 fi
 
 # Build

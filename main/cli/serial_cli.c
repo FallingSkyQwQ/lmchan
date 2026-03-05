@@ -1,7 +1,8 @@
 #include "serial_cli.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
+#include "bus/message_bus.h"
 #include "wifi/wifi_manager.h"
-#include "telegram/telegram_bot.h"
+#include "feishu/feishu_client.h"
 #include "llm/llm_proxy.h"
 #include "memory/memory_store.h"
 #include "memory/session_mgr.h"
@@ -16,6 +17,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <time.h>
 #include "esp_log.h"
 #include "esp_console.h"
 #include "esp_system.h"
@@ -23,6 +25,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "argtable3/argtable3.h"
+#include "cJSON.h"
 
 static const char *TAG = "cli";
 
@@ -54,21 +57,207 @@ static int cmd_wifi_status(int argc, char **argv)
     return 0;
 }
 
-/* --- set_tg_token command --- */
+/* --- Feishu config commands --- */
 static struct {
-    struct arg_str *token;
+    struct arg_str *app_id;
     struct arg_end *end;
-} tg_token_args;
+} fs_app_id_args;
 
-static int cmd_set_tg_token(int argc, char **argv)
+static int cmd_set_fs_app_id(int argc, char **argv)
 {
-    int nerrors = arg_parse(argc, argv, (void **)&tg_token_args);
+    int nerrors = arg_parse(argc, argv, (void **)&fs_app_id_args);
     if (nerrors != 0) {
-        arg_print_errors(stderr, tg_token_args.end, argv[0]);
+        arg_print_errors(stderr, fs_app_id_args.end, argv[0]);
         return 1;
     }
-    telegram_set_token(tg_token_args.token->sval[0]);
-    printf("Telegram bot token saved.\n");
+    esp_err_t err = feishu_set_app_id(fs_app_id_args.app_id->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set Feishu app_id: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Feishu app_id saved.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *app_secret;
+    struct arg_end *end;
+} fs_app_secret_args;
+
+static int cmd_set_fs_app_secret(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_app_secret_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_app_secret_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = feishu_set_app_secret(fs_app_secret_args.app_secret->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set Feishu app_secret: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Feishu app_secret saved.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *url;
+    struct arg_end *end;
+} fs_ws_url_args;
+
+static int cmd_set_fs_ws_url(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_ws_url_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_ws_url_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = feishu_set_ws_url(fs_ws_url_args.url->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set Feishu ws_url: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Feishu ws_url saved.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *mode;
+    struct arg_end *end;
+} fs_group_mode_args;
+
+static int cmd_set_fs_group_mode(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_group_mode_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_group_mode_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = feishu_set_group_mode(fs_group_mode_args.mode->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set group mode. Use mention|all.\n");
+        return 1;
+    }
+    printf("Feishu group mode updated.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *chat_id;
+    struct arg_str *path;
+    struct arg_end *end;
+} fs_send_image_args;
+
+static int cmd_fs_send_image(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_send_image_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_send_image_args.end, argv[0]);
+        return 1;
+    }
+
+    char image_key[128] = {0};
+    esp_err_t err = feishu_upload_image(fs_send_image_args.path->sval[0], image_key, sizeof(image_key));
+    if (err != ESP_OK || !image_key[0]) {
+        printf("Image upload failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
+    cJSON *content = cJSON_CreateObject();
+    cJSON_AddStringToObject(content, "image_key", image_key);
+    char *content_str = cJSON_PrintUnformatted(content);
+    cJSON_Delete(content);
+    if (!content_str) {
+        printf("Out of memory.\n");
+        return 1;
+    }
+    err = feishu_send_message_ex(fs_send_image_args.chat_id->sval[0], "image", content_str);
+    free(content_str);
+    if (err != ESP_OK) {
+        printf("Send image failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Image sent.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *chat_id;
+    struct arg_str *path;
+    struct arg_str *file_type;
+    struct arg_end *end;
+} fs_send_file_args;
+
+static int cmd_fs_send_file(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_send_file_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_send_file_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *ft = (fs_send_file_args.file_type->count > 0) ? fs_send_file_args.file_type->sval[0] : "stream";
+    char file_key[128] = {0};
+    esp_err_t err = feishu_upload_file(fs_send_file_args.path->sval[0], ft, file_key, sizeof(file_key));
+    if (err != ESP_OK || !file_key[0]) {
+        printf("File upload failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
+    cJSON *content = cJSON_CreateObject();
+    cJSON_AddStringToObject(content, "file_key", file_key);
+    char *content_str = cJSON_PrintUnformatted(content);
+    cJSON_Delete(content);
+    if (!content_str) {
+        printf("Out of memory.\n");
+        return 1;
+    }
+    err = feishu_send_message_ex(fs_send_file_args.chat_id->sval[0], "file", content_str);
+    free(content_str);
+    if (err != ESP_OK) {
+        printf("Send file failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("File sent.\n");
+    return 0;
+}
+
+static struct {
+    struct arg_str *chat_id;
+    struct arg_str *path;
+    struct arg_end *end;
+} fs_send_audio_args;
+
+static int cmd_fs_send_audio(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fs_send_audio_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fs_send_audio_args.end, argv[0]);
+        return 1;
+    }
+
+    char file_key[128] = {0};
+    esp_err_t err = feishu_upload_file(fs_send_audio_args.path->sval[0], "opus", file_key, sizeof(file_key));
+    if (err != ESP_OK || !file_key[0]) {
+        printf("Audio upload failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+
+    cJSON *content = cJSON_CreateObject();
+    cJSON_AddStringToObject(content, "file_key", file_key);
+    char *content_str = cJSON_PrintUnformatted(content);
+    cJSON_Delete(content);
+    if (!content_str) {
+        printf("Out of memory.\n");
+        return 1;
+    }
+    err = feishu_send_message_ex(fs_send_audio_args.chat_id->sval[0], "audio", content_str);
+    free(content_str);
+    if (err != ESP_OK) {
+        printf("Send audio failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Audio sent.\n");
     return 0;
 }
 
@@ -123,6 +312,50 @@ static int cmd_set_model_provider(int argc, char **argv)
     }
     llm_set_provider(provider_args.provider->sval[0]);
     printf("Model provider set.\n");
+    return 0;
+}
+
+/* --- set_api_base command --- */
+static struct {
+    struct arg_str *url;
+    struct arg_end *end;
+} api_base_args;
+
+static int cmd_set_api_base(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&api_base_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, api_base_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = llm_set_api_base_url(api_base_args.url->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set API base URL: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("API base URL set.\n");
+    return 0;
+}
+
+/* --- set_api_path command --- */
+static struct {
+    struct arg_str *path;
+    struct arg_end *end;
+} api_path_args;
+
+static int cmd_set_api_path(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&api_path_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, api_path_args.end, argv[0]);
+        return 1;
+    }
+    esp_err_t err = llm_set_api_path(api_path_args.path->sval[0]);
+    if (err != ESP_OK) {
+        printf("Failed to set API path: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("API path set.\n");
     return 0;
 }
 
@@ -280,7 +513,7 @@ static int cmd_skill_list(int argc, char **argv)
 
     size_t n = skill_loader_build_summary(buf, 4096);
     if (n == 0) {
-        printf("No skills found under " MIMI_SKILLS_PREFIX ".\n");
+        printf("No skills found under " LMCHAN_SKILLS_PREFIX ".\n");
     } else {
         printf("=== Skills ===\n%s", buf);
     }
@@ -307,9 +540,9 @@ static bool build_skill_path(const char *name, char *out, size_t out_size)
     if (strchr(name, '/') != NULL || strchr(name, '\\') != NULL) return false;
 
     if (has_md_suffix(name)) {
-        snprintf(out, out_size, MIMI_SKILLS_PREFIX "%s", name);
+        snprintf(out, out_size, LMCHAN_SKILLS_PREFIX "%s", name);
     } else {
-        snprintf(out, out_size, MIMI_SKILLS_PREFIX "%s.md", name);
+        snprintf(out, out_size, LMCHAN_SKILLS_PREFIX "%s.md", name);
     }
     return true;
 }
@@ -375,9 +608,9 @@ static int cmd_skill_search(int argc, char **argv)
     }
 
     const char *keyword = skill_search_args.keyword->sval[0];
-    DIR *dir = opendir(MIMI_SPIFFS_BASE);
+    DIR *dir = opendir(LMCHAN_SPIFFS_BASE);
     if (!dir) {
-        printf("Cannot open " MIMI_SPIFFS_BASE ".\n");
+        printf("Cannot open " LMCHAN_SPIFFS_BASE ".\n");
         return 1;
     }
 
@@ -395,7 +628,7 @@ static int cmd_skill_search(int argc, char **argv)
         if (strcmp(name + name_len - 3, ".md") != 0) continue;
 
         char full_path[296];
-        snprintf(full_path, sizeof(full_path), MIMI_SPIFFS_BASE "/%s", name);
+        snprintf(full_path, sizeof(full_path), LMCHAN_SPIFFS_BASE "/%s", name);
 
         bool file_matched = contains_nocase(name, keyword);
         int matched_line = 0;
@@ -468,15 +701,21 @@ static void print_config(const char *label, const char *ns, const char *key,
 static int cmd_config_show(int argc, char **argv)
 {
     printf("=== Current Configuration ===\n");
-    print_config("WiFi SSID",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_SSID,     MIMI_SECRET_WIFI_SSID,  false);
-    print_config("WiFi Pass",  MIMI_NVS_WIFI,   MIMI_NVS_KEY_PASS,     MIMI_SECRET_WIFI_PASS,  true);
-    print_config("TG Token",   MIMI_NVS_TG,     MIMI_NVS_KEY_TG_TOKEN, MIMI_SECRET_TG_TOKEN,   true);
-    print_config("API Key",    MIMI_NVS_LLM,    MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_API_KEY,    true);
-    print_config("Model",      MIMI_NVS_LLM,    MIMI_NVS_KEY_MODEL,    MIMI_SECRET_MODEL,      false);
-    print_config("Provider",   MIMI_NVS_LLM,    MIMI_NVS_KEY_PROVIDER, MIMI_SECRET_MODEL_PROVIDER, false);
-    print_config("Proxy Host", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_HOST, MIMI_SECRET_PROXY_HOST, false);
-    print_config("Proxy Port", MIMI_NVS_PROXY,  MIMI_NVS_KEY_PROXY_PORT, MIMI_SECRET_PROXY_PORT, false);
-    print_config("Search Key", MIMI_NVS_SEARCH, MIMI_NVS_KEY_API_KEY,  MIMI_SECRET_SEARCH_KEY, true);
+    print_config("WiFi SSID",  LMCHAN_NVS_WIFI,   LMCHAN_NVS_KEY_SSID,     LMCHAN_SECRET_WIFI_SSID,  false);
+    print_config("WiFi Pass",  LMCHAN_NVS_WIFI,   LMCHAN_NVS_KEY_PASS,     LMCHAN_SECRET_WIFI_PASS,  true);
+    print_config("FS App ID",  LMCHAN_NVS_FEISHU, LMCHAN_NVS_KEY_FS_APP_ID, LMCHAN_SECRET_FS_APP_ID, false);
+    print_config("FS Secret",  LMCHAN_NVS_FEISHU, LMCHAN_NVS_KEY_FS_APP_SECRET, LMCHAN_SECRET_FS_APP_SECRET, true);
+    print_config("FS WS URL",  LMCHAN_NVS_FEISHU, LMCHAN_NVS_KEY_FS_WS_URL, LMCHAN_SECRET_FS_WS_URL, false);
+    print_config("FS Mode",    LMCHAN_NVS_FEISHU, LMCHAN_NVS_KEY_FS_GROUP_MODE, LMCHAN_SECRET_FS_GROUP_MODE, false);
+    print_config("API Key",    LMCHAN_NVS_LLM,    LMCHAN_NVS_KEY_API_KEY,  LMCHAN_SECRET_API_KEY,    true);
+    print_config("Model",      LMCHAN_NVS_LLM,    LMCHAN_NVS_KEY_MODEL,    LMCHAN_SECRET_MODEL,      false);
+    print_config("Provider",   LMCHAN_NVS_LLM,    LMCHAN_NVS_KEY_PROVIDER, LMCHAN_SECRET_MODEL_PROVIDER, false);
+    print_config("API Base",   LMCHAN_NVS_LLM,    LMCHAN_NVS_KEY_API_BASE_URL, LMCHAN_SECRET_API_BASE_URL, false);
+    print_config("API Path",   LMCHAN_NVS_LLM,    LMCHAN_NVS_KEY_API_PATH, LMCHAN_SECRET_API_PATH, false);
+    print_config("Proxy Host", LMCHAN_NVS_PROXY,  LMCHAN_NVS_KEY_PROXY_HOST, LMCHAN_SECRET_PROXY_HOST, false);
+    print_config("Proxy Port", LMCHAN_NVS_PROXY,  LMCHAN_NVS_KEY_PROXY_PORT, LMCHAN_SECRET_PROXY_PORT, false);
+    print_config("Search Key", LMCHAN_NVS_SEARCH, LMCHAN_NVS_KEY_API_KEY,  LMCHAN_SECRET_SEARCH_KEY, true);
+    printf("  %-14s: %u min\n", "Heartbeat", (unsigned)heartbeat_get_interval_minutes());
     printf("=============================\n");
     return 0;
 }
@@ -485,9 +724,9 @@ static int cmd_config_show(int argc, char **argv)
 static int cmd_config_reset(int argc, char **argv)
 {
     const char *namespaces[] = {
-        MIMI_NVS_WIFI, MIMI_NVS_TG, MIMI_NVS_LLM, MIMI_NVS_PROXY, MIMI_NVS_SEARCH
+        LMCHAN_NVS_WIFI, LMCHAN_NVS_FEISHU, LMCHAN_NVS_LLM, LMCHAN_NVS_PROXY, LMCHAN_NVS_SEARCH, LMCHAN_NVS_HEARTBEAT
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         nvs_handle_t nvs;
         if (nvs_open(namespaces[i], NVS_READWRITE, &nvs) == ESP_OK) {
             nvs_erase_all(nvs);
@@ -524,6 +763,137 @@ static int cmd_cron_start(int argc, char **argv)
     return 1;
 }
 
+/* --- set_heartbeat_interval command --- */
+static struct {
+    struct arg_int *minutes;
+    struct arg_end *end;
+} heartbeat_interval_args;
+
+static int cmd_set_heartbeat_interval(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&heartbeat_interval_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, heartbeat_interval_args.end, argv[0]);
+        return 1;
+    }
+    int minutes = heartbeat_interval_args.minutes->ival[0];
+    if (minutes <= 0) {
+        printf("Interval must be > 0 minutes.\n");
+        return 1;
+    }
+    esp_err_t err = heartbeat_set_interval_minutes((uint32_t)minutes);
+    if (err != ESP_OK) {
+        printf("Failed to set heartbeat interval: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Heartbeat interval set to %d minutes.\n", minutes);
+    return 0;
+}
+
+/* --- cron templates --- */
+static struct {
+    struct arg_str *hhmm;
+    struct arg_str *chat_id;
+    struct arg_end *end;
+} cron_daily_digest_args;
+
+static struct {
+    struct arg_int *seconds;
+    struct arg_str *message;
+    struct arg_str *chat_id;
+    struct arg_end *end;
+} cron_reminder_args;
+
+static int64_t next_epoch_for_hhmm(const char *hhmm)
+{
+    int hh = -1, mm = -1;
+    if (sscanf(hhmm, "%d:%d", &hh, &mm) != 2 || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+        return -1;
+    }
+    time_t now = time(NULL);
+    struct tm local_tm;
+#if defined(_WIN32)
+    localtime_s(&local_tm, &now);
+#else
+    localtime_r(&now, &local_tm);
+#endif
+    local_tm.tm_hour = hh;
+    local_tm.tm_min = mm;
+    local_tm.tm_sec = 0;
+    time_t target = mktime(&local_tm);
+    if (target <= now) {
+        target += 24 * 3600;
+    }
+    return (int64_t)target;
+}
+
+static int cmd_cron_template_daily_digest(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&cron_daily_digest_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, cron_daily_digest_args.end, argv[0]);
+        return 1;
+    }
+
+    int64_t next_run = next_epoch_for_hhmm(cron_daily_digest_args.hhmm->sval[0]);
+    if (next_run <= 0) {
+        printf("Invalid time format, use HH:MM.\n");
+        return 1;
+    }
+
+    cron_job_t job = {0};
+    strncpy(job.name, "daily_digest", sizeof(job.name) - 1);
+    job.kind = CRON_KIND_EVERY;
+    job.interval_s = 24 * 3600;
+    job.next_run = next_run;
+    job.enabled = true;
+    strncpy(job.channel, LMCHAN_CHAN_FEISHU, sizeof(job.channel) - 1);
+    strncpy(job.chat_id, cron_daily_digest_args.chat_id->sval[0], sizeof(job.chat_id) - 1);
+    strncpy(job.message,
+            "Please generate a concise daily digest from today's notes and pending tasks.",
+            sizeof(job.message) - 1);
+
+    esp_err_t err = cron_add_job(&job);
+    if (err != ESP_OK) {
+        printf("Failed to add daily digest job: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Daily digest scheduled (id=%s), next run epoch=%lld.\n", job.id, (long long)job.next_run);
+    return 0;
+}
+
+static int cmd_cron_template_reminder(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&cron_reminder_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, cron_reminder_args.end, argv[0]);
+        return 1;
+    }
+
+    int seconds = cron_reminder_args.seconds->ival[0];
+    if (seconds <= 0) {
+        printf("Seconds must be > 0.\n");
+        return 1;
+    }
+
+    cron_job_t job = {0};
+    strncpy(job.name, "quick_reminder", sizeof(job.name) - 1);
+    job.kind = CRON_KIND_EVERY;
+    job.interval_s = (uint32_t)seconds;
+    job.enabled = true;
+    strncpy(job.channel, LMCHAN_CHAN_FEISHU, sizeof(job.channel) - 1);
+    strncpy(job.chat_id, cron_reminder_args.chat_id->sval[0], sizeof(job.chat_id) - 1);
+    strncpy(job.message, cron_reminder_args.message->sval[0], sizeof(job.message) - 1);
+
+    esp_err_t err = cron_add_job(&job);
+    if (err != ESP_OK) {
+        printf("Failed to add reminder job: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Reminder scheduled (id=%s), every %d seconds.\n", job.id, seconds);
+    return 0;
+}
+
 static int cmd_tool_exec(int argc, char **argv)
 {
     if (argc < 2) {
@@ -540,7 +910,12 @@ static int cmd_tool_exec(int argc, char **argv)
         return 1;
     }
 
-    esp_err_t err = tool_registry_execute(tool_name, input_json, output, 4096);
+    lmchan_tool_exec_ctx_t ctx = {
+        .channel = LMCHAN_CHAN_CLI,
+        .chat_id = "cli",
+        .type = "text",
+    };
+    esp_err_t err = tool_registry_execute_with_context(tool_name, input_json, output, 4096, &ctx);
     printf("tool_exec status: %s\n", esp_err_to_name(err));
     printf("%s\n", output[0] ? output : "(empty)");
     free(output);
@@ -559,7 +934,7 @@ esp_err_t serial_cli_init(void)
 {
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
-    repl_config.prompt = "mimi> ";
+    repl_config.prompt = "lmchan> ";
     repl_config.max_cmdline_length = 256;
 
 #if CONFIG_ESP_CONSOLE_UART_DEFAULT || CONFIG_ESP_CONSOLE_UART_CUSTOM
@@ -608,16 +983,80 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&wifi_scan_cmd);
 
-    /* set_tg_token */
-    tg_token_args.token = arg_str1(NULL, NULL, "<token>", "Telegram bot token");
-    tg_token_args.end = arg_end(1);
-    esp_console_cmd_t tg_token_cmd = {
-        .command = "set_tg_token",
-        .help = "Set Telegram bot token",
-        .func = &cmd_set_tg_token,
-        .argtable = &tg_token_args,
+    /* Feishu config */
+    fs_app_id_args.app_id = arg_str1(NULL, NULL, "<app_id>", "Feishu app_id");
+    fs_app_id_args.end = arg_end(1);
+    esp_console_cmd_t fs_app_id_cmd = {
+        .command = "set_fs_app_id",
+        .help = "Set Feishu app_id",
+        .func = &cmd_set_fs_app_id,
+        .argtable = &fs_app_id_args,
     };
-    esp_console_cmd_register(&tg_token_cmd);
+    esp_console_cmd_register(&fs_app_id_cmd);
+
+    fs_app_secret_args.app_secret = arg_str1(NULL, NULL, "<app_secret>", "Feishu app_secret");
+    fs_app_secret_args.end = arg_end(1);
+    esp_console_cmd_t fs_app_secret_cmd = {
+        .command = "set_fs_app_secret",
+        .help = "Set Feishu app_secret",
+        .func = &cmd_set_fs_app_secret,
+        .argtable = &fs_app_secret_args,
+    };
+    esp_console_cmd_register(&fs_app_secret_cmd);
+
+    fs_ws_url_args.url = arg_str1(NULL, NULL, "<ws_url>", "Feishu websocket URL");
+    fs_ws_url_args.end = arg_end(1);
+    esp_console_cmd_t fs_ws_url_cmd = {
+        .command = "set_fs_ws_url",
+        .help = "Set Feishu websocket URL (default: wss://open.feishu.cn/ws/v2/)",
+        .func = &cmd_set_fs_ws_url,
+        .argtable = &fs_ws_url_args,
+    };
+    esp_console_cmd_register(&fs_ws_url_cmd);
+
+    fs_group_mode_args.mode = arg_str1(NULL, NULL, "<mention|all>", "Group reply mode");
+    fs_group_mode_args.end = arg_end(1);
+    esp_console_cmd_t fs_group_mode_cmd = {
+        .command = "set_fs_group_mode",
+        .help = "Set group mode: mention (only @bot) or all",
+        .func = &cmd_set_fs_group_mode,
+        .argtable = &fs_group_mode_args,
+    };
+    esp_console_cmd_register(&fs_group_mode_cmd);
+
+    fs_send_image_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Feishu chat_id");
+    fs_send_image_args.path = arg_str1(NULL, NULL, "<spiffs_path>", "Image path on SPIFFS");
+    fs_send_image_args.end = arg_end(2);
+    esp_console_cmd_t fs_send_image_cmd = {
+        .command = "fs_send_image",
+        .help = "Upload image from SPIFFS and send to a Feishu chat",
+        .func = &cmd_fs_send_image,
+        .argtable = &fs_send_image_args,
+    };
+    esp_console_cmd_register(&fs_send_image_cmd);
+
+    fs_send_file_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Feishu chat_id");
+    fs_send_file_args.path = arg_str1(NULL, NULL, "<spiffs_path>", "File path on SPIFFS");
+    fs_send_file_args.file_type = arg_str0(NULL, NULL, "<file_type>", "Feishu file_type (default: stream)");
+    fs_send_file_args.end = arg_end(3);
+    esp_console_cmd_t fs_send_file_cmd = {
+        .command = "fs_send_file",
+        .help = "Upload file from SPIFFS and send to a Feishu chat",
+        .func = &cmd_fs_send_file,
+        .argtable = &fs_send_file_args,
+    };
+    esp_console_cmd_register(&fs_send_file_cmd);
+
+    fs_send_audio_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Feishu chat_id");
+    fs_send_audio_args.path = arg_str1(NULL, NULL, "<spiffs_path>", "Audio path on SPIFFS");
+    fs_send_audio_args.end = arg_end(2);
+    esp_console_cmd_t fs_send_audio_cmd = {
+        .command = "fs_send_audio",
+        .help = "Upload audio from SPIFFS and send to a Feishu chat",
+        .func = &cmd_fs_send_audio,
+        .argtable = &fs_send_audio_args,
+    };
+    esp_console_cmd_register(&fs_send_audio_cmd);
 
     /* set_api_key */
     api_key_args.key = arg_str1(NULL, NULL, "<key>", "LLM API key");
@@ -635,27 +1074,49 @@ esp_err_t serial_cli_init(void)
     model_args.end = arg_end(1);
     esp_console_cmd_t model_cmd = {
         .command = "set_model",
-        .help = "Set LLM model (default: " MIMI_LLM_DEFAULT_MODEL ")",
+        .help = "Set LLM model (default: " LMCHAN_LLM_DEFAULT_MODEL ")",
         .func = &cmd_set_model,
         .argtable = &model_args,
     };
     esp_console_cmd_register(&model_cmd);
 
     /* set_model_provider */
-    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai)");
+    provider_args.provider = arg_str1(NULL, NULL, "<provider>", "Model provider (anthropic|openai|openai_compatible)");
     provider_args.end = arg_end(1);
     esp_console_cmd_t provider_cmd = {
         .command = "set_model_provider",
-        .help = "Set LLM model provider (default: " MIMI_LLM_PROVIDER_DEFAULT ")",
+        .help = "Set LLM model provider (default: " LMCHAN_LLM_PROVIDER_DEFAULT ")",
         .func = &cmd_set_model_provider,
         .argtable = &provider_args,
     };
     esp_console_cmd_register(&provider_cmd);
 
+    /* set_api_base */
+    api_base_args.url = arg_str1(NULL, NULL, "<url>", "OpenAI-compatible API base URL");
+    api_base_args.end = arg_end(1);
+    esp_console_cmd_t api_base_cmd = {
+        .command = "set_api_base",
+        .help = "Set OpenAI-compatible API base URL (e.g. https://api.openrouter.ai)",
+        .func = &cmd_set_api_base,
+        .argtable = &api_base_args,
+    };
+    esp_console_cmd_register(&api_base_cmd);
+
+    /* set_api_path */
+    api_path_args.path = arg_str1(NULL, NULL, "<path>", "OpenAI-compatible API path");
+    api_path_args.end = arg_end(1);
+    esp_console_cmd_t api_path_cmd = {
+        .command = "set_api_path",
+        .help = "Set OpenAI-compatible API path (default: /v1/chat/completions)",
+        .func = &cmd_set_api_path,
+        .argtable = &api_path_args,
+    };
+    esp_console_cmd_register(&api_path_cmd);
+
     /* skill_list */
     esp_console_cmd_t skill_list_cmd = {
         .command = "skill_list",
-        .help = "List installed skills from " MIMI_SKILLS_PREFIX,
+        .help = "List installed skills from " LMCHAN_SKILLS_PREFIX,
         .func = &cmd_skill_list,
     };
     esp_console_cmd_register(&skill_list_cmd);
@@ -784,6 +1245,17 @@ esp_err_t serial_cli_init(void)
     };
     esp_console_cmd_register(&heartbeat_cmd);
 
+    /* set_heartbeat_interval */
+    heartbeat_interval_args.minutes = arg_int1(NULL, NULL, "<minutes>", "Heartbeat interval minutes");
+    heartbeat_interval_args.end = arg_end(1);
+    esp_console_cmd_t heartbeat_interval_cmd = {
+        .command = "set_heartbeat_interval",
+        .help = "Set heartbeat check interval in minutes",
+        .func = &cmd_set_heartbeat_interval,
+        .argtable = &heartbeat_interval_args,
+    };
+    esp_console_cmd_register(&heartbeat_interval_cmd);
+
     /* cron_start */
     esp_console_cmd_t cron_start_cmd = {
         .command = "cron_start",
@@ -791,6 +1263,31 @@ esp_err_t serial_cli_init(void)
         .func = &cmd_cron_start,
     };
     esp_console_cmd_register(&cron_start_cmd);
+
+    /* cron_template_daily_digest */
+    cron_daily_digest_args.hhmm = arg_str1(NULL, NULL, "<HH:MM>", "Local time for daily digest");
+    cron_daily_digest_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Feishu chat_id");
+    cron_daily_digest_args.end = arg_end(2);
+    esp_console_cmd_t digest_cmd = {
+        .command = "cron_template_daily_digest",
+        .help = "Create daily digest job at local HH:MM for a Feishu chat",
+        .func = &cmd_cron_template_daily_digest,
+        .argtable = &cron_daily_digest_args,
+    };
+    esp_console_cmd_register(&digest_cmd);
+
+    /* cron_template_reminder */
+    cron_reminder_args.seconds = arg_int1(NULL, NULL, "<seconds>", "Reminder interval seconds");
+    cron_reminder_args.message = arg_str1(NULL, NULL, "<message>", "Reminder message");
+    cron_reminder_args.chat_id = arg_str1(NULL, NULL, "<chat_id>", "Feishu chat_id");
+    cron_reminder_args.end = arg_end(3);
+    esp_console_cmd_t reminder_cmd = {
+        .command = "cron_template_reminder",
+        .help = "Create recurring reminder job for a Feishu chat",
+        .func = &cmd_cron_template_reminder,
+        .argtable = &cron_reminder_args,
+    };
+    esp_console_cmd_register(&reminder_cmd);
 
     /* tool_exec */
     esp_console_cmd_t tool_exec_cmd = {

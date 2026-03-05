@@ -1,10 +1,11 @@
 #include "memory_store.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include "esp_log.h"
 
 static const char *TAG = "memory";
@@ -21,15 +22,30 @@ static void get_date_str(char *buf, size_t size, int days_ago)
 
 esp_err_t memory_store_init(void)
 {
-    /* SPIFFS is flat — no real directory creation needed.
-       Just verify we can open the base path. */
-    ESP_LOGI(TAG, "Memory store initialized at %s", MIMI_SPIFFS_BASE);
+    struct stat st;
+    if (stat(LMCHAN_SPIFFS_CONFIG_DIR, &st) != 0) {
+        if (mkdir(LMCHAN_SPIFFS_CONFIG_DIR, 0777) != 0 && errno != EEXIST) {
+            ESP_LOGW(TAG, "mkdir failed for %s (errno=%d)", LMCHAN_SPIFFS_CONFIG_DIR, errno);
+        }
+    }
+    if (stat(LMCHAN_SPIFFS_MEMORY_DIR, &st) != 0) {
+        if (mkdir(LMCHAN_SPIFFS_MEMORY_DIR, 0777) != 0 && errno != EEXIST) {
+            ESP_LOGW(TAG, "mkdir failed for %s (errno=%d)", LMCHAN_SPIFFS_MEMORY_DIR, errno);
+        }
+    }
+    if (stat(LMCHAN_SPIFFS_SESSION_DIR, &st) != 0) {
+        if (mkdir(LMCHAN_SPIFFS_SESSION_DIR, 0777) != 0 && errno != EEXIST) {
+            ESP_LOGW(TAG, "mkdir failed for %s (errno=%d)", LMCHAN_SPIFFS_SESSION_DIR, errno);
+        }
+    }
+
+    ESP_LOGI(TAG, "Memory store initialized at %s", LMCHAN_SPIFFS_BASE);
     return ESP_OK;
 }
 
 esp_err_t memory_read_long_term(char *buf, size_t size)
 {
-    FILE *f = fopen(MIMI_MEMORY_FILE, "r");
+    FILE *f = fopen(LMCHAN_MEMORY_FILE, "r");
     if (!f) {
         buf[0] = '\0';
         return ESP_ERR_NOT_FOUND;
@@ -43,9 +59,9 @@ esp_err_t memory_read_long_term(char *buf, size_t size)
 
 esp_err_t memory_write_long_term(const char *content)
 {
-    FILE *f = fopen(MIMI_MEMORY_FILE, "w");
+    FILE *f = fopen(LMCHAN_MEMORY_FILE, "w");
     if (!f) {
-        ESP_LOGE(TAG, "Cannot write %s", MIMI_MEMORY_FILE);
+        ESP_LOGE(TAG, "Cannot write %s", LMCHAN_MEMORY_FILE);
         return ESP_FAIL;
     }
     fputs(content, f);
@@ -59,8 +75,8 @@ esp_err_t memory_append_today(const char *note)
     char date_str[16];
     get_date_str(date_str, sizeof(date_str), 0);
 
-    char path[64];
-    snprintf(path, sizeof(path), "%s/%s.md", MIMI_SPIFFS_MEMORY_DIR, date_str);
+    char path[192];
+    snprintf(path, sizeof(path), "%s/%s.md", LMCHAN_SPIFFS_MEMORY_DIR, date_str);
 
     FILE *f = fopen(path, "a");
     if (!f) {
@@ -87,8 +103,8 @@ esp_err_t memory_read_recent(char *buf, size_t size, int days)
         char date_str[16];
         get_date_str(date_str, sizeof(date_str), i);
 
-        char path[64];
-        snprintf(path, sizeof(path), "%s/%s.md", MIMI_SPIFFS_MEMORY_DIR, date_str);
+        char path[192];
+        snprintf(path, sizeof(path), "%s/%s.md", LMCHAN_SPIFFS_MEMORY_DIR, date_str);
 
         FILE *f = fopen(path, "r");
         if (!f) continue;

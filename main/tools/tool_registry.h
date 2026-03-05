@@ -4,11 +4,17 @@
 #include <stddef.h>
 
 typedef struct {
+    const char *channel;
+    const char *chat_id;
+    const char *type;
+} lmchan_tool_exec_ctx_t;
+
+typedef struct {
     const char *name;
     const char *description;
     const char *input_schema_json;  /* JSON Schema string for input */
     esp_err_t (*execute)(const char *input_json, char *output, size_t output_size);
-} mimi_tool_t;
+} lmchan_tool_t;
 
 /**
  * Initialize tool registry and register all built-in tools.
@@ -22,6 +28,12 @@ esp_err_t tool_registry_init(void);
 const char *tool_registry_get_tools_json(void);
 
 /**
+ * Get tools JSON filtered by execution context and current policy.
+ * Falls back to all tools when ctx is NULL.
+ */
+const char *tool_registry_get_tools_json_for_context(const lmchan_tool_exec_ctx_t *ctx);
+
+/**
  * Execute a tool by name.
  *
  * @param name         Tool name (e.g. "web_search")
@@ -32,3 +44,10 @@ const char *tool_registry_get_tools_json(void);
  */
 esp_err_t tool_registry_execute(const char *name, const char *input_json,
                                 char *output, size_t output_size);
+
+/**
+ * Execute a tool by name with context-aware policy enforcement.
+ */
+esp_err_t tool_registry_execute_with_context(const char *name, const char *input_json,
+                                             char *output, size_t output_size,
+                                             const lmchan_tool_exec_ctx_t *ctx);

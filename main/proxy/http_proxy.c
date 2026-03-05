@@ -1,5 +1,5 @@
 #include "http_proxy.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -28,23 +28,23 @@ static char     s_proxy_type[8] = "http"; // "http" or "socks5"
 esp_err_t http_proxy_init(void)
 {
     /* Start with build-time defaults */
-    if (MIMI_SECRET_PROXY_HOST[0] != '\0' && MIMI_SECRET_PROXY_PORT[0] != '\0') {
-        strncpy(s_proxy_host, MIMI_SECRET_PROXY_HOST, sizeof(s_proxy_host) - 1);
-        s_proxy_port = (uint16_t)atoi(MIMI_SECRET_PROXY_PORT);
-        if (MIMI_SECRET_PROXY_TYPE[0] != '\0') {
-            strncpy(s_proxy_type, MIMI_SECRET_PROXY_TYPE, sizeof(s_proxy_type) - 1);
+    if (LMCHAN_SECRET_PROXY_HOST[0] != '\0' && LMCHAN_SECRET_PROXY_PORT[0] != '\0') {
+        strncpy(s_proxy_host, LMCHAN_SECRET_PROXY_HOST, sizeof(s_proxy_host) - 1);
+        s_proxy_port = (uint16_t)atoi(LMCHAN_SECRET_PROXY_PORT);
+        if (LMCHAN_SECRET_PROXY_TYPE[0] != '\0') {
+            strncpy(s_proxy_type, LMCHAN_SECRET_PROXY_TYPE, sizeof(s_proxy_type) - 1);
         }
     }
 
     /* NVS overrides take highest priority (set via CLI) */
     nvs_handle_t nvs;
-    if (nvs_open(MIMI_NVS_PROXY, NVS_READONLY, &nvs) == ESP_OK) {
+    if (nvs_open(LMCHAN_NVS_PROXY, NVS_READONLY, &nvs) == ESP_OK) {
         char tmp[64] = {0};
         size_t len = sizeof(tmp);
-        if (nvs_get_str(nvs, MIMI_NVS_KEY_PROXY_HOST, tmp, &len) == ESP_OK && tmp[0]) {
+        if (nvs_get_str(nvs, LMCHAN_NVS_KEY_PROXY_HOST, tmp, &len) == ESP_OK && tmp[0]) {
             strncpy(s_proxy_host, tmp, sizeof(s_proxy_host) - 1);
             uint16_t port = 0;
-            if (nvs_get_u16(nvs, MIMI_NVS_KEY_PROXY_PORT, &port) == ESP_OK && port) {
+            if (nvs_get_u16(nvs, LMCHAN_NVS_KEY_PROXY_PORT, &port) == ESP_OK && port) {
                 s_proxy_port = port;
             }
             // Read proxy type from NVS
@@ -68,9 +68,9 @@ esp_err_t http_proxy_init(void)
 esp_err_t http_proxy_set(const char *host, uint16_t port, const char *type)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_PROXY, NVS_READWRITE, &nvs));
-    ESP_ERROR_CHECK(nvs_set_str(nvs, MIMI_NVS_KEY_PROXY_HOST, host));
-    ESP_ERROR_CHECK(nvs_set_u16(nvs, MIMI_NVS_KEY_PROXY_PORT, port));
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_PROXY, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_str(nvs, LMCHAN_NVS_KEY_PROXY_HOST, host));
+    ESP_ERROR_CHECK(nvs_set_u16(nvs, LMCHAN_NVS_KEY_PROXY_PORT, port));
     ESP_ERROR_CHECK(nvs_set_str(nvs, "proxy_type", type));
     ESP_ERROR_CHECK(nvs_commit(nvs));
     nvs_close(nvs);
@@ -85,9 +85,9 @@ esp_err_t http_proxy_set(const char *host, uint16_t port, const char *type)
 esp_err_t http_proxy_clear(void)
 {
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open(MIMI_NVS_PROXY, NVS_READWRITE, &nvs));
-    nvs_erase_key(nvs, MIMI_NVS_KEY_PROXY_HOST);
-    nvs_erase_key(nvs, MIMI_NVS_KEY_PROXY_PORT);
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_PROXY, NVS_READWRITE, &nvs));
+    nvs_erase_key(nvs, LMCHAN_NVS_KEY_PROXY_HOST);
+    nvs_erase_key(nvs, LMCHAN_NVS_KEY_PROXY_PORT);
     nvs_erase_key(nvs, "proxy_type");
     nvs_commit(nvs);
     nvs_close(nvs);

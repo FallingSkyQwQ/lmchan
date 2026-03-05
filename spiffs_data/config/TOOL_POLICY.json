@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "mode": "explicit_allow",
+  "default_effect": "deny",
+  "rules": [
+    {
+      "effect": "allow",
+      "channel": "*",
+      "chat_id": "*",
+      "type": "*",
+      "tools": [
+        "web_search",
+        "get_current_time",
+        "cron_list",
+        "subagent_status",
+        "subagent_list"
+      ]
+    },
+    {
+      "effect": "allow",
+      "channel": "feishu",
+      "chat_id": "*",
+      "type": "text",
+      "tools": [
+        "read_file",
+        "write_file",
+        "edit_file",
+        "list_dir",
+        "cron_add",
+        "cron_remove",
+        "subagent_create",
+        "subagent_cancel"
+      ]
+    },
+    {
+      "effect": "allow",
+      "channel": "feishu",
+      "chat_id": "*",
+      "type": "card_action",
+      "tools": [
+        "read_file",
+        "write_file",
+        "edit_file",
+        "list_dir",
+        "cron_add",
+        "cron_remove",
+        "subagent_create",
+        "subagent_cancel"
+      ]
+    },
+    {
+      "effect": "allow",
+      "channel": "cli",
+      "chat_id": "cli",
+      "type": "text",
+      "tools": [
+        "*"
+      ]
+    },
+    {
+      "effect": "allow",
+      "channel": "system",
+      "chat_id": "cron",
+      "type": "unknown",
+      "tools": [
+        "*"
+      ]
+    },
+    {
+      "effect": "allow",
+      "channel": "feishu",
+      "chat_id": "*",
+      "type": "unknown",
+      "tools": [
+        "*"
+      ]
+    }
+  ]
+}

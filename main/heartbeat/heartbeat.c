@@ -1,5 +1,5 @@
 #include "heartbeat/heartbeat.h"
-#include "mimi_config.h"
+#include "lmchan_config.h"
 #include "bus/message_bus.h"
 
 #include <stdio.h>
@@ -10,14 +10,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
 #include "esp_log.h"
+#include "nvs.h"
 
 static const char *TAG = "heartbeat";
 
 #define HEARTBEAT_PROMPT \
-    "Read " MIMI_HEARTBEAT_FILE " and follow any instructions or tasks listed there. " \
+    "Read " LMCHAN_HEARTBEAT_FILE " and follow any instructions or tasks listed there. " \
     "If nothing needs attention, reply with just: HEARTBEAT_OK"
 
 static TimerHandle_t s_heartbeat_timer = NULL;
+static uint32_t s_heartbeat_interval_ms = LMCHAN_HEARTBEAT_INTERVAL_MS;
 
 /* ── Content check ────────────────────────────────────────────── */
 
@@ -30,7 +32,7 @@ static TimerHandle_t s_heartbeat_timer = NULL;
  */
 static bool heartbeat_has_tasks(void)
 {
-    FILE *f = fopen(MIMI_HEARTBEAT_FILE, "r");
+    FILE *f = fopen(LMCHAN_HEARTBEAT_FILE, "r");
     if (!f) {
         return false;
     }
@@ -81,9 +83,9 @@ static bool heartbeat_send(void)
         return false;
     }
 
-    mimi_msg_t msg;
+    lmchan_msg_t msg;
     memset(&msg, 0, sizeof(msg));
-    strncpy(msg.channel, MIMI_CHAN_SYSTEM, sizeof(msg.channel) - 1);
+    strncpy(msg.channel, LMCHAN_CHAN_SYSTEM, sizeof(msg.channel) - 1);
     strncpy(msg.chat_id, "heartbeat", sizeof(msg.chat_id) - 1);
     msg.content = strdup(HEARTBEAT_PROMPT);
 
@@ -115,8 +117,16 @@ static void heartbeat_timer_callback(TimerHandle_t xTimer)
 
 esp_err_t heartbeat_init(void)
 {
+    nvs_handle_t nvs;
+    if (nvs_open(LMCHAN_NVS_HEARTBEAT, NVS_READONLY, &nvs) == ESP_OK) {
+        uint32_t minutes = 0;
+        if (nvs_get_u32(nvs, LMCHAN_NVS_KEY_HEARTBEAT_INTERVAL_MIN, &minutes) == ESP_OK && minutes > 0) {
+            s_heartbeat_interval_ms = minutes * 60 * 1000;
+        }
+        nvs_close(nvs);
+    }
     ESP_LOGI(TAG, "Heartbeat service initialized (file: %s, interval: %ds)",
-             MIMI_HEARTBEAT_FILE, MIMI_HEARTBEAT_INTERVAL_MS / 1000);
+             LMCHAN_HEARTBEAT_FILE, s_heartbeat_interval_ms / 1000);
     return ESP_OK;
 }
 
@@ -129,7 +139,7 @@ esp_err_t heartbeat_start(void)
 
     s_heartbeat_timer = xTimerCreate(
         "heartbeat",
-        pdMS_TO_TICKS(MIMI_HEARTBEAT_INTERVAL_MS),
+        pdMS_TO_TICKS(s_heartbeat_interval_ms),
         pdTRUE,    /* auto-reload */
         NULL,
         heartbeat_timer_callback
@@ -145,7 +155,7 @@ esp_err_t heartbeat_start(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Heartbeat started (every %d min)", MIMI_HEARTBEAT_INTERVAL_MS / 60000);
+    ESP_LOGI(TAG, "Heartbeat started (every %d min)", s_heartbeat_interval_ms / 60000);
     return ESP_OK;
 }
 
@@ -162,4 +172,29 @@ void heartbeat_stop(void)
 bool heartbeat_trigger(void)
 {
     return heartbeat_send();
+}
+
+esp_err_t heartbeat_set_interval_minutes(uint32_t minutes)
+{
+    if (minutes == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open(LMCHAN_NVS_HEARTBEAT, NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_set_u32(nvs, LMCHAN_NVS_KEY_HEARTBEAT_INTERVAL_MIN, minutes));
+    ESP_ERROR_CHECK(nvs_commit(nvs));
+    nvs_close(nvs);
+
+    s_heartbeat_interval_ms = minutes * 60 * 1000;
+    if (s_heartbeat_timer) {
+        xTimerChangePeriod(s_heartbeat_timer, pdMS_TO_TICKS(s_heartbeat_interval_ms), pdMS_TO_TICKS(1000));
+    }
+    ESP_LOGI(TAG, "Heartbeat interval updated to %u min", (unsigned)minutes);
+    return ESP_OK;
+}
+
+uint32_t heartbeat_get_interval_minutes(void)
+{
+    return s_heartbeat_interval_ms / 60000;
 }

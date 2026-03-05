@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "mimi_config.h"
+#include "lmchan_config.h"
 
 /**
  * Initialize the LLM proxy. Reads API key and model from build-time secrets, then NVS.
@@ -27,6 +27,16 @@ esp_err_t llm_set_provider(const char *provider);
  */
 esp_err_t llm_set_model(const char *model);
 
+/**
+ * Save the OpenAI-compatible API base URL to NVS.
+ */
+esp_err_t llm_set_api_base_url(const char *base_url);
+
+/**
+ * Save the OpenAI-compatible API path to NVS.
+ */
+esp_err_t llm_set_api_path(const char *api_path);
+
 /* ── Tool Use Support ──────────────────────────────────────────── */
 
 typedef struct {
@@ -39,7 +49,7 @@ typedef struct {
 typedef struct {
     char *text;                                  /* accumulated text blocks */
     size_t text_len;
-    llm_tool_call_t calls[MIMI_MAX_TOOL_CALLS];
+    llm_tool_call_t calls[LMCHAN_MAX_TOOL_CALLS];
     int call_count;
     bool tool_use;                               /* stop_reason == "tool_use" */
 } llm_response_t;
